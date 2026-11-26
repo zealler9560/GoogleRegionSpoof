@@ -13,6 +13,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ListView;
@@ -27,7 +28,7 @@ import java.util.Locale;
 
 /**
  * 主页：状态卡 / 当前地区（可搜索选择）/ 运营商卡片（与地区二级联动）/
- * GPS 城市与开关 / 当前伪装值面板 / 说明 / 设置入口。
+ * 城市、时区与语言开关 / 环境信号净化与定位开关 / 当前伪装值面板 / 说明 / 设置入口。
  * 全部代码构建 + ScrollView，顶部内容不会再被裁掉；
  * 配色由 UiTheme 按外观设置（浅/深/跟随系统 + 主题色）即时生成。
  */
@@ -93,7 +94,8 @@ public class MainActivity extends Activity {
         root.addView(statusCard(cfg));
         root.addView(regionCard(cfg));
         root.addView(carrierSection(cfg));
-        root.addView(gpsCard(cfg));
+        root.addView(cityTimezoneLocaleCard(cfg));
+        root.addView(envAndGpsCard(cfg));
         root.addView(valuesPanel(cfg));
         root.addView(noteView());
         root.addView(settingsEntry());
@@ -158,7 +160,7 @@ public class MainActivity extends Activity {
     private View carrierSection(final RegionConfig.Resolved cfg) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        TextView label = text("运营商（随地区联动）", 13, theme.subText, false);
+        TextView label = text("运营商（随地区联动 · 同步覆盖多卡接口）", 13, theme.subText, false);
         LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         labelLp.leftMargin = dp(4);
@@ -206,51 +208,106 @@ public class MainActivity extends Activity {
         return withTopMargin(box, 14);
     }
 
-    private View gpsCard(final RegionConfig.Resolved cfg) {
+    private View cityTimezoneLocaleCard(final RegionConfig.Resolved cfg) {
         LinearLayout card = card();
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.addView(text("📍 GPS 城市", 15, theme.text, true),
+        // 城市 / 时区选择行（点击弹出城市选择器，联动时区与 GPS 坐标）
+        LinearLayout cityBox = new LinearLayout(this);
+        cityBox.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout cityRow = new LinearLayout(this);
+        cityRow.setOrientation(LinearLayout.HORIZONTAL);
+        cityRow.setGravity(Gravity.CENTER_VERTICAL);
+        cityRow.addView(text("🕒 城市 / 时区", 15, theme.text, true),
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView city = text(cfg.city.name, 15, theme.accent, true);
-        city.setPadding(dp(8), dp(4), dp(0), dp(4));
-        row.addView(city);
-        card.addView(row);
-        card.setOnClickListener(new View.OnClickListener() {
+        TextView city = text(cfg.city.name + "  ›", 15, theme.accent, true);
+        city.setPadding(dp(8), dp(2), dp(0), dp(2));
+        cityRow.addView(city);
+        cityBox.addView(cityRow);
+        TextView tzSub = text("当前联动时区：" + cfg.timeZoneId + "（请与代理 IP 所在时区匹配）",
+                12, theme.subText, false);
+        LinearLayout.LayoutParams tzSubLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tzSubLp.topMargin = dp(4);
+        cityBox.addView(tzSub, tzSubLp);
+        cityBox.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 showCityPicker(cfg);
             }
         });
+        card.addView(cityBox);
 
-        LinearLayout swRow = new LinearLayout(this);
-        swRow.setOrientation(LinearLayout.HORIZONTAL);
-        swRow.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams swLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        swLp.topMargin = dp(12);
-        LinearLayout swTexts = new LinearLayout(this);
-        swTexts.setOrientation(LinearLayout.VERTICAL);
-        swTexts.addView(text("GPS 伪装", 15, theme.text, false));
-        swTexts.addView(text("开启后，目标应用读到的 GPS 坐标为所选城市", 12, theme.subText, false));
-        swRow.addView(swTexts, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        Switch sw = new Switch(this);
-        sw.setChecked(cfg.gpsEnabled);
-        sw.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(android.widget.CompoundButton button, boolean checked) {
-                Prefs.saveGpsEnabled(MainActivity.this, checked);
-                Toast.makeText(MainActivity.this, checked
-                        ? "GPS 伪装已开启：请强停目标应用后生效（风险见底部说明）"
-                        : "GPS 伪装已关闭", Toast.LENGTH_SHORT).show();
-                refresh();
-            }
-        });
-        swRow.addView(sw);
-        card.addView(swRow, swLp);
+        // 接管应用时区开关
+        card.addView(switchRow(
+                "接管应用时区",
+                "开启后注入上方城市时区；关闭后直接读取手机系统时区",
+                cfg.timezoneEnabled,
+                new CompoundButton.OnCheckedChangeListener() {
+                    @Override
+                    public void onCheckedChanged(CompoundButton button, boolean checked) {
+                        Prefs.saveTimezoneEnabled(MainActivity.this, checked);
+                        Toast.makeText(MainActivity.this, checked
+                                ? "已开启时区接管（" + cfg.timeZoneId + "），强停目标应用生效"
+                                : "已关闭时区接管，将跟随系统时区", Toast.LENGTH_SHORT).show();
+                        refresh();
+                    }
+                }), topMarginLp(14));
+
+        // 接管应用语言开关
+        card.addView(switchRow(
+                "接管应用语言（Locale）",
+                "开启后将目标语言置于首位并保留系统中文回退；关闭后完全跟随系统",
+                cfg.localeEnabled,
+                new CompoundButton.OnCheckedChangeListener() {
+                    @Override
+                    public void onCheckedChanged(CompoundButton button, boolean checked) {
+                        Prefs.saveLocaleEnabled(MainActivity.this, checked);
+                        Toast.makeText(MainActivity.this, checked
+                                ? "已开启语言接管（保留中文回退），强停目标应用生效"
+                                : "已关闭语言接管，强停目标应用生效", Toast.LENGTH_SHORT).show();
+                        refresh();
+                    }
+                }), topMarginLp(14));
+
+        return withTopMargin(card, 12);
+    }
+
+    private View envAndGpsCard(final RegionConfig.Resolved cfg) {
+        LinearLayout card = card();
+        card.addView(text("📡 环境与定位防泄漏", 15, theme.text, true));
+
+        // 环境信号净化开关（默认开）
+        card.addView(switchRow(
+                "环境信号净化（屏蔽 Wi-Fi / 基站扫描）",
+                "仅对 GMS 生效，阻断周边 Wi-Fi 列表与基站扫描泄露真实物理位置（推荐开启）",
+                cfg.envPurifyEnabled,
+                new CompoundButton.OnCheckedChangeListener() {
+                    @Override
+                    public void onCheckedChanged(CompoundButton button, boolean checked) {
+                        Prefs.saveEnvPurifyEnabled(MainActivity.this, checked);
+                        Toast.makeText(MainActivity.this, checked
+                                ? "已开启 GMS 环境信号净化，强停 GMS 后生效"
+                                : "已关闭 GMS 环境信号净化", Toast.LENGTH_SHORT).show();
+                        refresh();
+                    }
+                }), topMarginLp(12));
+
+        // GPS 伪装开关（高风险，默认关）
+        card.addView(switchRow(
+                "GPS 伪装（高风险）",
+                "⚠ 高风险：不建议对 GMS 开启，易与真实网络环境冲突；开启后使用上方城市坐标",
+                cfg.gpsEnabled,
+                new CompoundButton.OnCheckedChangeListener() {
+                    @Override
+                    public void onCheckedChanged(CompoundButton button, boolean checked) {
+                        Prefs.saveGpsEnabled(MainActivity.this, checked);
+                        Toast.makeText(MainActivity.this, checked
+                                ? "GPS 伪装已开启（高风险）：请强停目标应用后生效"
+                                : "GPS 伪装已关闭", Toast.LENGTH_SHORT).show();
+                        refresh();
+                    }
+                }), topMarginLp(14));
+
         return withTopMargin(card, 12);
     }
 
@@ -269,13 +326,22 @@ public class MainActivity extends Activity {
             sb.append("SIM 国家码        ").append(cfg.country.iso.toUpperCase(Locale.US)).append('\n');
             sb.append("网络国家码      ").append(cfg.country.iso.toUpperCase(Locale.US)).append('\n');
             sb.append("SIM 运营商       ").append(cfg.carrier.numeric)
-                    .append("（").append(cfg.carrier.name).append("）\n");
-            sb.append("语言 / 地区      ").append(cfg.country.language)
-                    .append('_').append(cfg.country.localeCountry).append('\n');
-            sb.append("时区                 ").append(cfg.country.timeZoneId).append('\n');
+                    .append("（").append(cfg.carrier.name)
+                    .append(" · MCC ").append(cfg.carrier.getMccString())
+                    .append(" / MNC ").append(cfg.carrier.getMncString()).append("）\n");
+            sb.append("多卡接口           SubscriptionInfo 已同步\n");
+            sb.append("语言 / 地区      ").append(cfg.localeEnabled
+                    ? cfg.country.language + "-" + cfg.country.localeCountry + "（首位，保留系统回退）"
+                    : "未接管（跟随系统）").append('\n');
+            sb.append("时区                 ").append(cfg.timezoneEnabled
+                    ? cfg.timeZoneId + "（含 persist.sys.timezone）"
+                    : "未接管（跟随系统）").append('\n');
+            sb.append("环境净化           ").append(cfg.envPurifyEnabled
+                    ? "已开启（仅 GMS 屏蔽 Wi-Fi/基站）"
+                    : "未开启").append('\n');
             sb.append("GPS 位置          ").append(cfg.gpsEnabled
-                    ? cfg.city.name + "（" + cfg.gpsLat + ", " + cfg.gpsLng + "）"
-                    : "未开启");
+                    ? "高风险开启：" + cfg.city.name + "（" + cfg.gpsLat + ", " + cfg.gpsLng + "）"
+                    : "未开启（推荐）");
             TextView body = text(sb.toString(), 13, theme.subText, false);
             body.setLineSpacing(dp(3), 1f);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -294,11 +360,10 @@ public class MainActivity extends Activity {
     }
 
     private View noteView() {
-        TextView note = text("说明：本模块只伪装应用读到的区域信号（SIM/网络国家、运营商、语言、时区），"
-                + "不改变 IP 出口，IP 请配合代理使用。切换国家/运营商后：强停对应的谷歌应用；"
+        TextView note = text("说明：本模块只伪装客户端读取到的硬件与环境信号（SIM/多卡/运营商/语言/时区/环境净化），"
+                + "不改变 IP 出口，请务必将城市时区与代理住宅 IP 保持一致。修改配置后请强停目标应用；"
                 + "Play 商店还需清一次缓存才生效。\n"
-                + "⚠ GPS 伪装风险：在 GMS 等系统级应用里伪装 GPS，可能让依赖定位的谷歌服务"
-                + "（如时间线、查找设备、基于位置的提醒）行为异常；不需要时请保持关闭。",
+                + "⚠ 定位建议：建议开启「环境信号净化」并保持「GPS 伪装」关闭，避免假 GPS 与真实物理网络打架。",
                 12, theme.subText, false);
         note.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -391,7 +456,7 @@ public class MainActivity extends Activity {
                 RegionData.Country picked = filtered.get(position);
                 Prefs.saveCountry(MainActivity.this, picked);
                 Toast.makeText(MainActivity.this, "已切换到 " + picked.zhName
-                        + "（运营商已重置为 " + picked.carriers[0].name + "）",
+                        + "（" + picked.carriers[0].name + " · " + picked.cities[0].timeZoneId + "）",
                         Toast.LENGTH_SHORT).show();
                 dialog.dismiss();
                 refresh();
@@ -405,17 +470,21 @@ public class MainActivity extends Activity {
         String[] names = new String[cities.length];
         int checked = 0;
         for (int i = 0; i < cities.length; i++) {
-            names[i] = cities[i].name + "（" + cities[i].lat + ", " + cities[i].lng + "）";
+            names[i] = cities[i].name + " · " + cities[i].timeZoneId;
             if (cities[i].name.equals(cfg.city.name)) {
                 checked = i;
             }
         }
         new AlertDialog.Builder(this)
-                .setTitle("选择 GPS 城市（" + cfg.country.zhName + "）")
+                .setTitle("选择城市与时区（" + cfg.country.zhName + "）")
                 .setSingleChoiceItems(names, checked, new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
-                        Prefs.saveCity(MainActivity.this, cities[which]);
+                        RegionData.City picked = cities[which];
+                        Prefs.saveCity(MainActivity.this, picked);
+                        Toast.makeText(MainActivity.this,
+                                "已切换到 " + picked.name + "（" + picked.timeZoneId + "）",
+                                Toast.LENGTH_SHORT).show();
                         dialog.dismiss();
                         refresh();
                     }
@@ -426,6 +495,36 @@ public class MainActivity extends Activity {
 
     // ---------------- 小工具 ----------------
 
+    private View switchRow(String title, String subtitle, boolean checked,
+                           CompoundButton.OnCheckedChangeListener listener) {
+        LinearLayout swRow = new LinearLayout(this);
+        swRow.setOrientation(LinearLayout.HORIZONTAL);
+        swRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout swTexts = new LinearLayout(this);
+        swTexts.setOrientation(LinearLayout.VERTICAL);
+        swTexts.setPadding(0, 0, dp(10), 0);
+        swTexts.addView(text(title, 15, theme.text, false));
+        TextView sub = text(subtitle, 12, theme.subText, false);
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        subLp.topMargin = dp(2);
+        swTexts.addView(sub, subLp);
+        swRow.addView(swTexts, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Switch sw = new Switch(this);
+        sw.setChecked(checked);
+        sw.setOnCheckedChangeListener(listener);
+        swRow.addView(sw);
+        return swRow;
+    }
+
+    private LinearLayout.LayoutParams topMarginLp(int marginDp) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(marginDp);
+        return lp;
+    }
+
     private LinearLayout card() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -435,10 +534,7 @@ public class MainActivity extends Activity {
     }
 
     private View withTopMargin(View v, int marginDp) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(marginDp);
-        v.setLayoutParams(lp);
+        v.setLayoutParams(topMarginLp(marginDp));
         return v;
     }
 

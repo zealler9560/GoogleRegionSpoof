@@ -150,7 +150,12 @@ public class SettingsActivity extends Activity {
         lp.topMargin = dp(10);
         row.addView(text("当前版本", 14, theme.text, false),
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        row.addView(text("v1.2", 14, theme.subText, false));
+        String ver = "1.4";
+        try {
+            ver = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Throwable ignored) {
+        }
+        row.addView(text("v" + ver, 14, theme.subText, false));
         card.addView(row, lp);
         return withTopMargin(card, 12);
     }

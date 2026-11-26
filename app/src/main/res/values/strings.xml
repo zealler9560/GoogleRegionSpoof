@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">谷歌区域伪装</string>
-    <string name="xposed_description">伪装谷歌应用读到的区域信号：SIM/网络国家、运营商、语言、时区（不含 IP）</string>
+    <string name="xposed_description">伪装谷歌应用读到的区域信号：SIM/多卡/运营商、动态城市时区、语言列表与 GMS 环境净化（不含 IP）</string>
 
     <!-- LSPosed 推荐作用域：谷歌全家桶（v1.3 补全） -->
     <string-array name="xposed_scope">
